@@ -2,21 +2,14 @@
 # -*- coding: utf-8 -*-
 
 """
-Batch runner: draws many random parameter vectors and records equilibrium outcomes.
+Minimal batch runner: guarantees ≥5 examples of every mask, then random remainder.
+CSV columns: parameters, efforts (x1,y1,x2,y2), MultipleMatches (Yes/No).
 
-Solver module:
+Solver:
   /Users/tonymolino/Dropbox/Mac/Desktop/PyProjects/Value_Divergence/Value_Divergence_Code/src/valued/Finding_Equilibrium_1.py
 
-Output CSV:
-  /Users/tonymolino/Dropbox/Mac/Desktop/PyProjects/Value_Divergence/Value_Divergence_Code/outputs/random_equilibria_100.csv
-
-Behavior:
-  - Generates N_SAMPLES random parameter vectors within the BOUNDS below.
-  - Calls solve_two_task_cobb_douglas_equilibrium() for each vector.
-  - Writes one CSV row per draw with:
-      params, mask(s), multiple_masks flag, equilibrium efforts (x1,y1,x2,y2) and r, X, Y,
-      whether multiple-mask solutions are identical, and the maximum pairwise effort difference.
-  - If multiple masks match, it lists them and summarizes per-mask efforts in a string column.
+Output:
+  /Users/tonymolino/Dropbox/Mac/Desktop/PyProjects/Value_Divergence/Value_Divergence_Code/outputs/random_equilibria_quota_min.csv
 """
 
 import sys
@@ -25,16 +18,17 @@ import csv
 import random
 from typing import Dict, Any, List, Tuple
 
-# ---------- EDITABLE SETTINGS (no CLI; just change here and click Run) ----------
-N_SAMPLES: int = 100
-RANDOM_SEED: int = 12345
+# ---------------- config ----------------
+N_TOTAL: int = 100
+MIN_PER_MASK: int = 5
+RANDOM_SEED: int = 424242
 OUTPUT_CSV: str = (
     "/Users/tonymolino/Dropbox/Mac/Desktop/PyProjects/Value_Divergence/"
-    "Value_Divergence_Code/outputs/random_equilibria_100.csv"
+    "Value_Divergence_Code/outputs/random_equilibria_quota_min.csv"
 )
-TOL_COMPARE: float = 1e-9  # for "identical across masks" comparison
+MAX_TRIES_PER_TARGET: int = 200000
 
-# Parameter bounds (open intervals respected by the solver: a_i in (0,1); others > 0)
+# Parameter bounds
 BOUNDS: Dict[str, Tuple[float, float]] = {
     "a1":  (0.05, 0.95),
     "a2":  (0.05, 0.95),
@@ -45,164 +39,127 @@ BOUNDS: Dict[str, Tuple[float, float]] = {
     "p2x": (0.50, 2.00),
     "p2y": (0.50, 2.00),
 }
-# -------------------------------------------------------------------------------
+# ---------------------------------------
 
 # Make src importable (NO BLANK PATHS)
 SRC_DIR = "/Users/tonymolino/Dropbox/Mac/Desktop/PyProjects/Value_Divergence/Value_Divergence_Code/src"
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-# Import the solver
 from valued.Finding_Equilibrium_1 import solve_two_task_cobb_douglas_equilibrium  # noqa: E402
 
+MASKS = ["B,X", "X,B", "B,Y", "Y,B", "X,Y", "Y,X", "B,B"]
 
 def _uniform(lo: float, hi: float) -> float:
-    """Closed-open safety (never exactly hits endpoints for (0,1) intervals)."""
-    # tiny epsilon keeps away from exact endpoints
     eps = 1e-12
     return random.uniform(lo + eps, hi - eps)
 
-
 def draw_params() -> Dict[str, float]:
-    """Draw one parameter vector uniformly from BOUNDS."""
-    return {k: _uniform(*BOUNDS[k]) for k in ["a1", "a2", "c1", "c2", "p1x", "p1y", "p2x", "p2y"]}
+    return {k: _uniform(*BOUNDS[k]) for k in ["a1","a2","c1","c2","p1x","p1y","p2x","p2y"]}
 
-
-def efforts_tuple(sol: Dict[str, Any]) -> Tuple[float, float, float, float]:
-    """(x1, y1, x2, y2) tuple from a solver solution dict."""
-    return (float(sol.get("x1", 0.0)),
-            float(sol.get("y1", 0.0)),
-            float(sol.get("x2", 0.0)),
-            float(sol.get("y2", 0.0)))
-
-
-def max_pairwise_abs_diff(solutions: List[Dict[str, Any]]) -> float:
-    """Max absolute difference across all pairs and all four efforts."""
-    mx = 0.0
-    for i in range(len(solutions)):
-        xi = efforts_tuple(solutions[i])
-        for j in range(i + 1, len(solutions)):
-            xj = efforts_tuple(solutions[j])
-            mx = max(mx, abs(xi[0] - xj[0]), abs(xi[1] - xj[1]),
-                          abs(xi[2] - xj[2]), abs(xi[3] - xj[3]))
-    return mx
-
-
-def summarize_solutions_by_mask(sols_by_mask: Dict[str, Dict[str, Any]]) -> str:
+def construct_params_BB() -> Dict[str, float]:
     """
-    Compact one-line summary listing per-mask efforts.
-    Example: "B,X: x1=...,y1=...,x2=...,y2=... | B,B: x1=...,y1=...,x2=...,y2=..."
+    Construct parameters satisfying r1 == r2 to hit (B,B).
+    r1 = (a1 p1y)/((1-a1) p1x), r2 = (a2 p2y)/((1-a2) p2x)
+    Choose a1,a2,c1,c2,p1x,p1y,p2x; then set p2y so r2 == r1.
+    Verify via solver; retry if out of bounds or not (B,B).
     """
-    parts = []
-    for m in sorted(sols_by_mask.keys()):
-        s = sols_by_mask[m]
-        parts.append(
-            f"{m}: x1={s['x1']:.6g}, y1={s['y1']:.6g}, x2={s['x2']:.6g}, y2={s['y2']:.6g}"
-        )
-    return " | ".join(parts)
+    lo, hi = BOUNDS["p2y"]
+    for _ in range(50000):
+        a1 = _uniform(*BOUNDS["a1"])
+        a2 = _uniform(*BOUNDS["a2"])
+        c1 = _uniform(*BOUNDS["c1"])
+        c2 = _uniform(*BOUNDS["c2"])
+        p1x = _uniform(*BOUNDS["p1x"])
+        p1y = _uniform(*BOUNDS["p1y"])
+        p2x = _uniform(*BOUNDS["p2x"])
+        r1 = (a1 * p1y) / ((1.0 - a1) * p1x)
+        p2y = ((1.0 - a2) * p2x / a2) * r1
+        if not (lo < p2y < hi):
+            continue
+        params = {"a1":a1,"a2":a2,"c1":c1,"c2":c2,"p1x":p1x,"p1y":p1y,"p2x":p2x,"p2y":p2y}
+        res = solve_two_task_cobb_douglas_equilibrium(a1,a2,c1,c2,p1x,p1y,p2x,p2y,tol=1e-10,verbose=False)
+        if res.get("multiple_matches", False):
+            if "B,B" in res.get("masks", []):
+                return params
+        elif res.get("mask") == "B,B":
+            return params
+    raise RuntimeError("Could not construct (B,B) within attempts.")
 
+def produced_masks(res: Dict[str, Any]) -> List[str]:
+    if res.get("multiple_matches", False):
+        return list(res.get("masks", []))
+    if res.get("mask") is not None:
+        return [res["mask"]]
+    return []
 
-def main() -> None:
-    # Reproducible randomness
-    random.seed(RANDOM_SEED)
+def primary_efforts(res: Dict[str, Any]) -> Tuple[float, float, float, float]:
+    """Pick efforts to record. If multiple, choose first mask in sorted order for determinism."""
+    if res.get("multiple_matches", False):
+        masks = sorted(res.get("masks", []))
+        sol = res.get("solutions_by_mask", {}).get(masks[0], {})
+        return float(sol.get("x1", float("nan"))), float(sol.get("y1", float("nan"))), \
+               float(sol.get("x2", float("nan"))), float(sol.get("y2", float("nan")))
+    # single
+    return float(res.get("x1", float("nan"))), float(res.get("y1", float("nan"))), \
+           float(res.get("x2", float("nan"))), float(res.get("y2", float("nan")))
 
-    # Ensure output folder exists
-    os.makedirs(os.path.dirname(OUTPUT_CSV), exist_ok=True)
-
-    # CSV header
-    header = [
-        "idx",
-        # parameters
-        "a1", "a2", "c1", "c2", "p1x", "p1y", "p2x", "p2y",
-        # mask & flags
-        "mask", "multiple_masks", "no_feasible_mask",
-        "solutions_identical_across_masks", "max_pairwise_effort_abs_diff",
-        # equilibrium (primary / single-mask or first-mask when multiple)
-        "x1", "y1", "x2", "y2", "r", "X", "Y",
-        # summary string for multiple-mask case
-        "solutions_by_mask_summary"
+def row_from_res(params: Dict[str, float], res: Dict[str, Any]) -> List[Any]:
+    x1,y1,x2,y2 = primary_efforts(res)
+    mm = "Yes" if res.get("multiple_matches", False) else "No"
+    return [
+        params["a1"], params["a2"], params["c1"], params["c2"],
+        params["p1x"], params["p1y"], params["p2x"], params["p2y"],
+        x1, y1, x2, y2, mm
     ]
 
-    rows = []
-    mask_counts: Dict[str, int] = {}
-    n_multiple = 0
-    n_infeasible = 0
+def main() -> None:
+    random.seed(RANDOM_SEED)
+    os.makedirs(os.path.dirname(OUTPUT_CSV), exist_ok=True)
 
-    for idx in range(1, N_SAMPLES + 1):
+    header = [
+        "a1","a2","c1","c2","p1x","p1y","p2x","p2y",
+        "x1","y1","x2","y2","MultipleMatches"
+    ]
+
+    rows: List[List[Any]] = []
+    counts: Dict[str, int] = {m: 0 for m in MASKS}
+
+    # Stage 1: meet quotas for each mask
+    for target in MASKS:
+        needed = max(0, MIN_PER_MASK - counts[target])
+        tries = 0
+        while needed > 0 and tries < MAX_TRIES_PER_TARGET:
+            tries += 1
+            params = construct_params_BB() if target == "B,B" else draw_params()
+            res = solve_two_task_cobb_douglas_equilibrium(
+                params["a1"], params["a2"], params["c1"], params["c2"],
+                params["p1x"], params["p1y"], params["p2x"], params["p2y"],
+                tol=1e-10, verbose=False
+            )
+            masks = produced_masks(res)
+            if target in masks:
+                rows.append(row_from_res(params, res))
+                # credit all masks that appeared in this row up to quota
+                for m in masks:
+                    if m in counts and counts[m] < MIN_PER_MASK:
+                        counts[m] += 1
+                needed = max(0, MIN_PER_MASK - counts[target])
+        if needed > 0:
+            raise RuntimeError(f"Failed to meet quota for mask {target} in {tries} tries.")
+
+    # Stage 2: random remainder until N_TOTAL rows
+    while len(rows) < N_TOTAL:
         params = draw_params()
-
-        # Call solver (quiet)
         res = solve_two_task_cobb_douglas_equilibrium(
             params["a1"], params["a2"], params["c1"], params["c2"],
             params["p1x"], params["p1y"], params["p2x"], params["p2y"],
             tol=1e-10, verbose=False
         )
-
-        # Defaults
-        multiple_masks = False
-        no_feasible = False
-        sol_identical = True
-        max_diff = 0.0
-        mask_label = ""
-        x1 = y1 = x2 = y2 = r = X = Y = float("nan")
-        sols_summary = ""
-
-        if res.get("multiple_matches", False):
-            multiple_masks = True
-            n_multiple += 1
-            masks = res.get("masks", [])
-            # Count each mask occurrence
-            for m in masks:
-                mask_counts[m] = mask_counts.get(m, 0) + 1
-            mask_label = "|".join(masks)
-
-            sols_by_mask = res.get("solutions_by_mask", {})
-            sols_list = [sols_by_mask[m] for m in masks if m in sols_by_mask]
-
-            # Are all solutions identical (by efforts)?
-            if len(sols_list) >= 2:
-                max_diff = max_pairwise_abs_diff(sols_list)
-                sol_identical = (max_diff <= TOL_COMPARE)
-            else:
-                sol_identical = True
-                max_diff = 0.0
-
-            # Primary numbers: take the first mask’s values (documented)
-            if sols_list:
-                first = sols_list[0]
-                x1, y1, x2, y2 = first["x1"], first["y1"], first["x2"], first["y2"]
-                r = first.get("r", float("nan"))
-                X = first.get("XY", {}).get("X", float("nan"))
-                Y = first.get("XY", {}).get("Y", float("nan"))
-
-            sols_summary = summarize_solutions_by_mask(sols_by_mask)
-
-        elif res.get("mask") is None:
-            # No feasible mask
-            no_feasible = True
-            n_infeasible += 1
-            mask_label = ""
-            # We still count candidate "passed" masks = none; nothing to do here.
-
-        else:
-            # Single match
-            mask_label = res["mask"]
-            mask_counts[mask_label] = mask_counts.get(mask_label, 0) + 1
-            x1, y1, x2, y2 = res["x1"], res["y1"], res["x2"], res["y2"]
-            r = res.get("r", float("nan"))
-            X = res.get("XY", {}).get("X", float("nan"))
-            Y = res.get("XY", {}).get("Y", float("nan"))
-
-        row = [
-            idx,
-            params["a1"], params["a2"], params["c1"], params["c2"],
-            params["p1x"], params["p1y"], params["p2x"], params["p2y"],
-            mask_label, multiple_masks, no_feasible,
-            sol_identical, max_diff,
-            x1, y1, x2, y2, r, X, Y,
-            sols_summary
-        ]
-        rows.append(row)
+        # ignore totally infeasible (should be rare)
+        if (not res.get("multiple_matches", False)) and (res.get("mask") is None):
+            continue
+        rows.append(row_from_res(params, res))
 
     # Write CSV
     with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
@@ -210,18 +167,9 @@ def main() -> None:
         w.writerow(header)
         w.writerows(rows)
 
-    # Print a quick summary
-    print("\n=== Batch complete ===")
-    print(f"Samples: {N_SAMPLES}")
-    print(f"Output CSV: {OUTPUT_CSV}")
-    print(f"Multiple-mask cases: {n_multiple}")
-    print(f"No-feasible-mask cases: {n_infeasible}")
-    print("Mask counts (single and from multiple-mask sets):")
-    for m in sorted(mask_counts.keys()):
-        print(f"  {m:>4s}: {mask_counts[m]}")
-    if n_multiple > 0:
-        print(f"Comparison tolerance for 'identical across masks': {TOL_COMPARE:g}")
-
+    # Print a tiny summary to console
+    print(f"Wrote {len(rows)} rows to:\n  {OUTPUT_CSV}")
+    print(f"Quotas satisfied (≥{MIN_PER_MASK} each). Remainder random. Seed={RANDOM_SEED}")
 
 if __name__ == "__main__":
     main()
