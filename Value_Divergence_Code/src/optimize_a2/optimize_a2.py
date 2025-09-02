@@ -25,7 +25,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 # ---- Exact file paths (no blanks). Update here if you move the file. ----
 _CANDIDATE_FILES = [
     # Primary local project path (preferred)
-    "/Users/tonymolino/Dropbox/Mac/Desktop/PyProjects/Value_Divergence/Value_Divergence_Code/Scripts/Finding Equilibrium/Finding_Equilibrium_1.py",
+    "/Users/tonymolino/Dropbox/Mac/Desktop/PyProjects/Value_Divergence/Value_Divergence_Code/src/Equil_finder/Finding_Equilibrium_1.py",
     # Session upload path (fallback)
     "/mnt/data/Finding_Equilibrium_1.py",
 ]
