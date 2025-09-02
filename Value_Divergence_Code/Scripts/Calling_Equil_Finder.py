@@ -9,7 +9,7 @@ Simple runner: NO CLI FLAGS, NO JSON.
 Edits happen here in PARAMS. Then click Run.
 
 Solver lives at:
-  /Users/tonymolino/Dropbox/Mac/Desktop/PyProjects/Value_Divergence/Value_Divergence_Code/src/valued/Finding_Equilibrium_1.py
+  /Users/tonymolino/Dropbox/Mac/Desktop/PyProjects/Value_Divergence/Value_Divergence_Code/src/Equil_finder/Finding_Equilibrium_1.py
 """
 
 import sys
@@ -21,7 +21,7 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 # --- Import the solver ---
-from valued.Finding_Equilibrium_1 import solve_two_task_cobb_douglas_equilibrium  # noqa: E402
+from Equil_finder.Finding_Equilibrium_1 import solve_two_task_cobb_douglas_equilibrium  # noqa: E402
 
 # ======= EDIT THESE NUMBERS TO TRY DIFFERENT PARAMETER VECTORS =======
 PARAMS = {

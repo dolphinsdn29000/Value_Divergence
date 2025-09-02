@@ -8,7 +8,7 @@ Minimal batch runner: guarantees ≥5 examples of every mask, then random remain
 CSV columns: parameters, efforts (x1,y1,x2,y2), MultipleMatches (Yes/No).
 
 Solver:
-  /Users/tonymolino/Dropbox/Mac/Desktop/PyProjects/Value_Divergence/Value_Divergence_Code/src/valued/Finding_Equilibrium_1.py
+  /Users/tonymolino/Dropbox/Mac/Desktop/PyProjects/Value_Divergence/Value_Divergence_Code/src/Equil_finder/Finding_Equilibrium_1.py
 
 Output:
   /Users/tonymolino/Dropbox/Mac/Desktop/PyProjects/Value_Divergence/Value_Divergence_Code/outputs/random_equilibria_quota_min.csv
@@ -48,7 +48,7 @@ SRC_DIR = "/Users/tonymolino/Dropbox/Mac/Desktop/PyProjects/Value_Divergence/Val
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-from valued.Finding_Equilibrium_1 import solve_two_task_cobb_douglas_equilibrium  # noqa: E402
+from Equil_finder.Finding_Equilibrium_1 import solve_two_task_cobb_douglas_equilibrium  # noqa: E402
 
 MASKS = ["B,X", "X,B", "B,Y", "Y,B", "X,Y", "Y,X", "B,B"]
 
