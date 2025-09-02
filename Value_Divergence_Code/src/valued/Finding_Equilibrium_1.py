@@ -8,6 +8,8 @@ def solve_two_task_cobb_douglas_equilibrium(
     *, tol: float = 1e-10, verbose: bool = True
 ) -> Dict[str, Any]:
     """
+    My words: This finds the equibrium for our modle
+
     Two-Task Cobb–Douglas Team: case selection and closed-form equilibrium.
     Implements ONLY the formulas and inequalities in these sources (do not change paths):
       - /mnt/data/Value_Divergence (56).pdf  [Pairs P1–P4, Tables 1–3, interior selection derivation]

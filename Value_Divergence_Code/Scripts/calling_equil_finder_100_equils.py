@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
+My words: This generates a bunch of random paramater values and that calls the FInding_Equibirum_1 to geenrate paramter values)
+
 Minimal batch runner: guarantees ≥5 examples of every mask, then random remainder.
 CSV columns: parameters, efforts (x1,y1,x2,y2), MultipleMatches (Yes/No).
 

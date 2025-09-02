@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-This allows you to input paramters and it will out equilbirums.
+My words: This allows you to input parameters and it will output equilbirums. This is for single set of paramteter values
 
 
 Simple runner: NO CLI FLAGS, NO JSON.
