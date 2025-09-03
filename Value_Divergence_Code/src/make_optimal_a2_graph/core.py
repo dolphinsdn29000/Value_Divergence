@@ -86,6 +86,48 @@ def make_a1_grid(min_a1: float, max_a1: float, n: int) -> List[float]:
     return [min_a1 + i * step for i in range(n)]
 
 
+def _ensure_dir(path: str) -> None:
+    os.makedirs(path, exist_ok=True)
+
+
+def _save_csv(points: Sequence[A1A2Point], csv_path: str) -> None:
+    _ensure_dir(os.path.dirname(csv_path))
+    with open(csv_path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["a1", "a2_star", "U1_at_best"])
+        for pt in points:
+            w.writerow([f"{pt.a1:.10f}", f"{pt.a2_star:.10f}", f"{pt.u1_at_best:.10f}"])
+
+
+def _fmt_val(v: float) -> str:
+    """Compact float formatting for filenames/titles (e.g., 0.333333 -> '0.333333')."""
+    return f"{float(v):.6g}"
+
+
+def _param_tag(p1x: float, p1y: float, p2x: float, p2y: float) -> str:
+    """
+    Build a safe, compact tag for filenames.
+    Example: 'p1x-1_p1y-1_p2x-2_p2y-1' (with up to 6 significant digits).
+    """
+    return (
+        f"p1x-{_fmt_val(p1x)}_"
+        f"p1y-{_fmt_val(p1y)}_"
+        f"p2x-{_fmt_val(p2x)}_"
+        f"p2y-{_fmt_val(p2y)}"
+    )
+
+
+def _title_suffix(p1x: float, p1y: float, p2x: float, p2y: float) -> str:
+    """
+    Human-readable parameter suffix for the plot title.
+    Example: 'p1x=1, p1y=1, p2x=2, p2y=1'
+    """
+    return (
+        f"p1x={_fmt_val(p1x)}, p1y={_fmt_val(p1y)}, "
+        f"p2x={_fmt_val(p2x)}, p2y={_fmt_val(p2y)}"
+    )
+
+
 # ---------- CORE ----------
 def compute_a1_vs_opt_a2(
     *,
@@ -133,22 +175,18 @@ def compute_a1_vs_opt_a2(
     return points, optimizer_src
 
 
-def _ensure_dir(path: str) -> None:
-    os.makedirs(path, exist_ok=True)
-
-
-def _save_csv(points: Sequence[A1A2Point], csv_path: str) -> None:
-    _ensure_dir(os.path.dirname(csv_path))
-    with open(csv_path, "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["a1", "a2_star", "U1_at_best"])
-        for pt in points:
-            w.writerow([f"{pt.a1:.10f}", f"{pt.a2_star:.10f}", f"{pt.u1_at_best:.10f}"])
-
-
-def plot_and_save(points: Sequence[A1A2Point], png_path: str) -> None:
+def plot_and_save(
+    points: Sequence[A1A2Point],
+    png_path: str,
+    *,
+    p1x: float,
+    p1y: float,
+    p2x: float,
+    p2y: float,
+) -> None:
     """
     One matplotlib figure; no seaborn; no explicit colors; no subplots.
+    The plot *title* includes the p-parameters, and the *filename* is handled upstream.
     """
     import matplotlib.pyplot as plt
 
@@ -160,7 +198,7 @@ def plot_and_save(points: Sequence[A1A2Point], png_path: str) -> None:
     plt.plot(xs, ys, marker="o", linestyle="-")
     plt.xlabel("a1")
     plt.ylabel("optimal a2 (a2*)")
-    plt.title("a1 vs optimal a2")
+    plt.title(f"a1 vs optimal a2  |  {_title_suffix(p1x, p1y, p2x, p2y)}")
     plt.grid(True)
     plt.tight_layout()
     plt.savefig(png_path, dpi=200)
@@ -194,6 +232,9 @@ def run_and_save(
       2) computes points,
       3) writes CSV + PNG.
 
+    The PNG filename is automatically suffixed with the p-parameters:
+      a1_vs_opt_a2__p1x-<..>_p1y-<..>_p2x-<..>_p2y-<..>.png
+
     Returns (optimizer_source_file, csv_path, png_path).
     """
     grid = make_a1_grid(min_a1=min_a1, max_a1=max_a1, n=n_points)
@@ -205,9 +246,18 @@ def run_and_save(
         solver_tol=solver_tol, solver_verbose=solver_verbose,
     )
 
+    # CSV path (unchanged naming)
     csv_path = os.path.join(output_dir, csv_name)
-    png_path = os.path.join(output_dir, png_name)
+
+    # PNG path with parameter tag appended to the *filename*
+    param_suffix = _param_tag(p1x, p1y, p2x, p2y)  # e.g., p1x-1_p1y-1_p2x-2_p2y-1
+    base_png, ext_png = os.path.splitext(png_name)
+    if not ext_png:
+        ext_png = ".png"
+    png_name_tagged = f"{base_png}__{param_suffix}{ext_png}"
+    png_path = os.path.join(output_dir, png_name_tagged)
+
     _save_csv(points, csv_path)
-    plot_and_save(points, png_path)
+    plot_and_save(points, png_path, p1x=p1x, p1y=p1y, p2x=p2x, p2y=p2y)
 
     return optimizer_src, csv_path, png_path

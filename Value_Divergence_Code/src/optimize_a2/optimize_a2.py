@@ -122,7 +122,6 @@ class OptimizationResult:
     samples: List[Tuple[float, float, str]]  # (a2, U1, mask_or_note)
     solver_source: str
 
-
 def optimize_a2_for_player1(
     *,
     a1: float,
@@ -137,16 +136,20 @@ def optimize_a2_for_player1(
     solver_verbose: bool = False,
 ) -> OptimizationResult:
     """
-    Maximize Player 1's utility over a2 ∈ (a2_lo, a2_hi) by repeatedly calling
-    Finding_Equilibrium_1.solve_two_task_cobb_douglas_equilibrium(...).
+    Robust maximization of Player 1's utility over a2 ∈ (a2_lo, a2_hi).
 
-    Returns OptimizationResult with the best a2, U1, chosen mask, full equilibrium dict,
-    samples across the search, and the actual source path used for the solver.
+    Strategy:
+      (1) Uniform coarse scan across the *entire* interval (no assumptions).
+      (2) Golden-section refinement in a small bracket around the best coarse point.
+      (3) ALWAYS include the true global endpoints as candidates.
+      (4) Return the best among all candidates.
+
+    This fixes failures when U1(a2) is piecewise / has jumps at mask switches.
     """
     if not (0.0 < a2_lo < a2_hi < 1.0):
         raise ValueError("Require 0.0 < a2_lo < a2_hi < 1.0 (open interval).")
 
-    # Load your canonical solver (exact function in Finding_Equilibrium_1.py)
+    # --- canonical solver ---
     eq_solver, solver_src = _import_solver()
 
     def trial(a2_val: float) -> Tuple[float, Dict, str]:
@@ -163,22 +166,62 @@ def optimize_a2_for_player1(
 
         u1_mask = _u1_from_solution(sol, a1, c1)
         if u1_mask is None:
-            # Infeasible / invalid at this a2
             return float("-inf"), sol, sol.get("mask") or "NOFEAS"
-
         u1, mask = u1_mask
-        return float(u1), sol, mask
+        return float(u1), sol, str(mask)
 
-    # Golden-section search on (a2_lo, a2_hi)
-    phi = (math.sqrt(5.0) - 1.0) / 2.0  # ≈ 0.618
-    a, b = float(a2_lo), float(a2_hi)
+    samples: List[Tuple[float, float, str]] = []
+    eps = max(1e-9, 1e-12 * (a2_hi - a2_lo))
+
+    # ---------- (1) UNIFORM COARSE SCAN over the full interval ----------
+    COARSE_N = 2001  # increase if you want even denser brute force
+    span = (a2_hi - a2_lo)
+    step = span / (COARSE_N + 1)  # so first/last interior to (a2_lo, a2_hi)
+
+    coarse_best_u = float("-inf")
+    coarse_best_a2 = None
+    coarse_best_sol: Dict = {}
+    coarse_best_mask = "INIT"
+
+    for i in range(1, COARSE_N + 1):
+        a2v = a2_lo + i * step
+        if i == 1:
+            a2v = a2_lo + eps
+        elif i == COARSE_N:
+            a2v = a2_hi - eps
+        u, st, m = trial(a2v)
+        samples.append((a2v, u, m))
+        if u > coarse_best_u:
+            coarse_best_u, coarse_best_a2, coarse_best_sol, coarse_best_mask = u, a2v, st, m
+
+    # If everything infeasible, fallback to midpoint
+    if coarse_best_a2 is None:
+        mid = a2_lo + 0.5 * span
+        u_mid, st_mid, m_mid = trial(mid)
+        samples.append((mid, u_mid, m_mid))
+        return OptimizationResult(
+            best_a2=float(mid),
+            u1_at_best=float(u_mid),
+            chosen_mask=str(m_mid),
+            eqm_at_best=st_mid,
+            samples=[(float(a2), float(u1), str(msk)) for (a2, u1, msk) in samples],
+            solver_source=solver_src,
+        )
+
+    # ---------- (2) GOLDEN REFINEMENT around the coarse best ----------
+    # Small local bracket centered at coarse_best_a2 (use one coarse step on each side)
+    a = max(a2_lo + eps, coarse_best_a2 - step)
+    b = min(a2_hi - eps, coarse_best_a2 + step)
+    if b - a < 10 * eps:
+        a, b = a2_lo + eps, a2_hi - eps
+
+    phi = (math.sqrt(5.0) - 1.0) / 2.0
     c_pt = b - phi * (b - a)
     d_pt = a + phi * (b - a)
 
     u_c, sol_c, m_c = trial(c_pt)
     u_d, sol_d, m_d = trial(d_pt)
-
-    samples: List[Tuple[float, float, str]] = [(c_pt, u_c, m_c), (d_pt, u_d, m_d)]
+    samples.extend([(c_pt, u_c, m_c), (d_pt, u_d, m_d)])
 
     it = 0
     while (b - a) > tol and it < max_iter:
@@ -196,31 +239,36 @@ def optimize_a2_for_player1(
             u_c, sol_c, m_c = trial(c_pt)
             samples.append((c_pt, u_c, m_c))
 
-    # Guard: also sample endpoints inside the open interval by a tiny nudge
-    eps = 1e-9
-    u_a, sol_a, m_a = trial(max(a + eps, a2_lo))
-    u_b, sol_b, m_b = trial(min(b - eps, a2_hi))
-    samples.extend([(max(a + eps, a2_lo), u_a, m_a), (min(b - eps, a2_hi), u_b, m_b)])
+    # Include the local bracket ends
+    u_a, sol_a, m_a = trial(a)
+    u_b, sol_b, m_b = trial(b)
+    samples.extend([(a, u_a, m_a), (b, u_b, m_b)])
 
-    # Pick the best among candidates we hold
+    # ---------- (3) ALWAYS include the TRUE GLOBAL ENDPOINTS ----------
+    u_lo, sol_lo, m_lo = trial(a2_lo + eps)
+    u_hi, sol_hi, m_hi = trial(a2_hi - eps)
+    samples.extend([(a2_lo + eps, u_lo, m_lo), (a2_hi - eps, u_hi, m_hi)])
+
+    # Also include the best coarse point
+    u_seed, a2_seed, sol_seed, m_seed = coarse_best_u, coarse_best_a2, coarse_best_sol, coarse_best_mask
+
+    # ---------- (4) Pick the best among all candidates ----------
     candidates = [
         (c_pt, u_c, sol_c, m_c),
         (d_pt, u_d, sol_d, m_d),
-        (max(a + eps, a2_lo), u_a, sol_a, m_a),
-        (min(b - eps, a2_hi), u_b, sol_b, m_b),
+        (a,    u_a, sol_a, m_a),
+        (b,    u_b, sol_b, m_b),
+        (a2_lo + eps, u_lo, sol_lo, m_lo),
+        (a2_hi - eps, u_hi, sol_hi, m_hi),
+        (a2_seed, u_seed, sol_seed, m_seed),
     ]
     best = max(candidates, key=lambda t: t[1])
 
-    best_a2 = float(best[0])
-    best_u1 = float(best[1])
-    best_sol = best[2]
-    best_mask = str(best[3])
-
     return OptimizationResult(
-        best_a2=best_a2,
-        u1_at_best=best_u1,
-        chosen_mask=best_mask,
-        eqm_at_best=best_sol,
+        best_a2=float(best[0]),
+        u1_at_best=float(best[1]),
+        chosen_mask=str(best[3]),
+        eqm_at_best=best[2],
         samples=[(float(a2), float(u1), str(msk)) for (a2, u1, msk) in samples],
         solver_source=solver_src,
     )
