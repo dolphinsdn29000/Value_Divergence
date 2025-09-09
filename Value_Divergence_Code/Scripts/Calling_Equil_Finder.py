@@ -8,7 +8,7 @@ My words: This allows you to input parameters and it will output equilbirums. Th
 Simple runner: NO CLI FLAGS, NO JSON.
 Edits happen here in PARAMS. Then click Run.
 
-Solver lives at:
+Solvere lives at:
   /Users/tonymolino/Dropbox/Mac/Desktop/PyProjects/Value_Divergence/Value_Divergence_Code/src/Equil_finder/Finding_Equilibrium_1.py
 """
 
